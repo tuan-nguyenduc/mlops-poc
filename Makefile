@@ -9,7 +9,7 @@ BIN         := $(VENV)/bin
 export MLFLOW_TRACKING_URI ?= http://localhost:5050
 PLACEHOLDER := https://github.com/YOUR_USER/mlops-poc
 
-.PHONY: help prereqs configure venv up images bootstrap train promote release load \
+.PHONY: help prereqs configure venv up images bootstrap train promote release load load-staging \
         chaos-on chaos-off sync watch status urls passwords test lint scan down
 
 help: ## Show this help
@@ -61,6 +61,11 @@ release: ## Commit + push gitops changes (ArgoCD deploys them): make release MSG
 
 load: venv ## Send steady traffic to the model API
 	$(BIN)/python scripts/load.py $(ARGS)
+
+load-staging: venv ## Send steady traffic to the staging model API (needed for its canary analysis)
+	kubectl -n model-api-staging port-forward svc/model-api 18000:8000 >/tmp/pf-staging.log 2>&1 & \
+	pf_pid=$$!; trap "kill $$pf_pid" EXIT; sleep 2; \
+	$(BIN)/python scripts/load.py --url http://localhost:18000/predict $(ARGS)
 
 chaos-on: ## Make the next release fail 30% of requests (to demo auto-rollback)
 	sed -i '' 's/^  errorRate: .*/  errorRate: "0.3"/' gitops/model-api/values.yaml

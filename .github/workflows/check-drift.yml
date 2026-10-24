@@ -1,0 +1,44 @@
+name: check-drift
+
+# Replaces a blind retrain-on-schedule: this runs cheaply and often, and only
+# triggers the real (expensive) train-promote-dev workflow when drift is
+# actually detected against prod's champion. Runs on a self-hosted runner for
+# the same reason the other workflows do: it needs to reach local MLflow.
+on:
+  workflow_dispatch:
+    inputs:
+      drift:
+        description: "simulate drift for a demo run (0 = real check)"
+        required: false
+        default: "0"
+  schedule:
+    - cron: "*/30 * * * *"
+
+permissions:
+  actions: write
+
+jobs:
+  check:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up venv
+        run: |
+          python3.12 -m venv .venv
+          .venv/bin/pip install -q -r ml/requirements.txt
+
+      - name: Check for drift against prod
+        id: drift
+        run: |
+          cd ml
+          set +e
+          ../.venv/bin/python check_drift.py --env prod --drift "${{ inputs.drift || '0' }}"
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Trigger retraining if drift was found
+        if: steps.drift.outputs.exit != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run train-promote-dev.yml

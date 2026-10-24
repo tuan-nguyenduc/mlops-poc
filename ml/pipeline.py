@@ -43,6 +43,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--C", type=float, default=1.0, help="logreg regularisation")
     p.add_argument("--rows", type=int, default=20_000)
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--drift", type=float, default=0.0, help="simulate population drift (see data.generate)")
     p.add_argument("--threshold", type=float, default=0.5, help="decision threshold")
     return p.parse_args()
 
@@ -72,7 +73,7 @@ def main() -> None:
     mlflow.set_experiment(EXPERIMENT)
 
     # 1. Ingest
-    df = generate(n=args.rows, seed=args.seed)
+    df = generate(n=args.rows, seed=args.seed, shift=args.drift)
     # 2. Validate (raises and stops the pipeline on bad data)
     report = validate(df)
     print(f"[validate] ok: {report}")
@@ -87,7 +88,7 @@ def main() -> None:
     with mlflow.start_run() as run:
         mlflow.set_tags({"algo": args.algo, "pipeline": "ml/pipeline.py"})
         mlflow.log_params({**params, "algo": args.algo, "rows": args.rows,
-                           "seed": args.seed, "threshold": args.threshold,
+                           "seed": args.seed, "threshold": args.threshold, "drift": args.drift,
                            "holdout_seed": HOLDOUT_SEED, "holdout_rows": HOLDOUT_ROWS})
         mlflow.log_dict(report, "data/validation_report.json")
         # Training feature means: a simple baseline for drift checks later.
