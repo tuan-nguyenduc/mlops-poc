@@ -1,5 +1,5 @@
 # Model version to serve. Managed by ml/promote.py; Git is the source of truth.
-modelVersion: "4"
+modelVersion: "1"
 
 model:
   name: loan-default
