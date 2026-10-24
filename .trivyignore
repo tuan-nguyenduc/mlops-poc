@@ -1,0 +1,30 @@
+# mlflow is pinned to 2.17.2 in serving/requirements.txt and ml/requirements.txt
+# because MLflow 2.17 is the last version compatible with SQLAlchemy 2.0.x
+# (2.17+ breaks on SQLAlchemy 2.1+, see README troubleshooting section).
+# These CVEs are fixed only in mlflow 3.x, and pyarrow/starlette are pulled
+# in transitively by mlflow's own pins. Accepted for this local POC; revisit
+# when upgrading mlflow past the SQLAlchemy compatibility boundary.
+CVE-2025-15036
+CVE-2025-15379
+CVE-2026-0596
+CVE-2026-2635
+CVE-2026-2651
+CVE-2026-4035
+CVE-2025-10279
+CVE-2025-11200
+CVE-2025-11201
+CVE-2025-14279
+CVE-2025-14287
+CVE-2025-15031
+CVE-2026-2033
+CVE-2026-2393
+CVE-2026-2614
+CVE-2026-2652
+CVE-2026-4137
+CVE-2026-53995
+CVE-2026-8147
+GHSA-gqvg-gmmx-x4hm
+CVE-2026-25087
+CVE-2025-62727
+CVE-2026-48818
+CVE-2026-54283
