@@ -1,0 +1,8 @@
+# Overrides on top of ../../values.yaml for the dev environment.
+# modelVersion here can move freely; dev has no promotion gate.
+replicas: 1
+
+# No stable host port mapped for dev in kind; reach it with:
+#   kubectl -n model-api-dev port-forward svc/model-api 8000:8000
+service:
+  nodePort: 30801

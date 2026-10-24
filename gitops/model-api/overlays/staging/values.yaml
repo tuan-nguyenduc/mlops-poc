@@ -1,0 +1,8 @@
+# Overrides on top of ../../values.yaml for the staging environment.
+# modelVersion should only change via a reviewed PR promoting a dev-validated version.
+replicas: 2
+
+# No stable host port mapped for staging in kind; reach it with:
+#   kubectl -n model-api-staging port-forward svc/model-api 8000:8000
+service:
+  nodePort: 30802
