@@ -16,7 +16,7 @@ mlflowTrackingUri: http://mlflow.mlflow.svc.cluster.local:5000
 # Chaos knobs, both for demoing automatic canary rollback on purpose.
 chaos:
   errorRate: "0" # fraction of /predict calls that fail outright
-  predictionBias: "0.4"
+  predictionBias: "0"
 
 canary:
   maxErrorRate: 0.05
