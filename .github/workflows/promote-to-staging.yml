@@ -29,8 +29,8 @@ jobs:
         run: |
           cd ml
           ../.venv/bin/python promote.py \
+            --env staging \
             --version "${{ inputs.version }}" \
-            --values ../gitops/model-api/overlays/staging/values.yaml \
             --force
 
       - name: Open PR

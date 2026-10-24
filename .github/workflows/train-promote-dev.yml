@@ -38,7 +38,7 @@ jobs:
         run: |
           cd ml
           set +e
-          ../.venv/bin/python promote.py --values ../gitops/model-api/overlays/dev/values.yaml
+          ../.venv/bin/python promote.py --env dev
           echo "exit=$?" >> "$GITHUB_OUTPUT"
           exit 0
 

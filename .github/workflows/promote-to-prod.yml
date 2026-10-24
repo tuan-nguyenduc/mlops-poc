@@ -30,8 +30,8 @@ jobs:
         run: |
           cd ml
           ../.venv/bin/python promote.py \
+            --env prod \
             --version "${{ inputs.version }}" \
-            --values ../gitops/model-api/values.yaml \
             --force
 
       - name: Open PR
