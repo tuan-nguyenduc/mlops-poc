@@ -1,0 +1,53 @@
+name: promote-to-staging
+
+# Deliberate, human-triggered promotion of a dev-validated version to staging.
+# Opens a PR instead of pushing directly - a reviewer must approve and merge
+# before ArgoCD deploys it, unlike dev's auto-push workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "loan-default model version to promote to staging"
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  promote:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up venv
+        run: |
+          python3.12 -m venv .venv
+          .venv/bin/pip install -q -r ml/requirements.txt
+
+      - name: Promote version to staging overlay
+        run: |
+          cd ml
+          ../.venv/bin/python promote.py \
+            --version "${{ inputs.version }}" \
+            --values ../gitops/model-api/overlays/staging/values.yaml \
+            --force
+
+      - name: Open PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet; then
+            echo "Staging overlay already at v${{ inputs.version }}; nothing to do"
+            exit 0
+          fi
+          git config user.email "ml-pipeline-bot@local"
+          git config user.name "ml-pipeline-bot"
+          branch="promote-staging-v${{ inputs.version }}-$(date +%s)"
+          git checkout -b "$branch"
+          git add gitops/model-api/overlays/staging/values.yaml
+          git commit -m "promote model v${{ inputs.version }} to staging"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "Promote model v${{ inputs.version }} to staging" \
+            --body "Promotes loan-default v${{ inputs.version }} to the staging environment. Triggered manually via promote-to-staging workflow."

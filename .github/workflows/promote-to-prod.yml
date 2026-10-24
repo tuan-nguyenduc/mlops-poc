@@ -1,0 +1,54 @@
+name: promote-to-prod
+
+# Deliberate, human-triggered promotion to production. Opens a PR instead of
+# pushing directly - a reviewer must approve and merge before ArgoCD rolls it
+# out via the canary release. Writes the base values.yaml (prod's file),
+# same one the manual `make promote` flow has always used.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "loan-default model version to promote to prod"
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  promote:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up venv
+        run: |
+          python3.12 -m venv .venv
+          .venv/bin/pip install -q -r ml/requirements.txt
+
+      - name: Promote version to prod
+        run: |
+          cd ml
+          ../.venv/bin/python promote.py \
+            --version "${{ inputs.version }}" \
+            --values ../gitops/model-api/values.yaml \
+            --force
+
+      - name: Open PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet; then
+            echo "Prod values.yaml already at v${{ inputs.version }}; nothing to do"
+            exit 0
+          fi
+          git config user.email "ml-pipeline-bot@local"
+          git config user.name "ml-pipeline-bot"
+          branch="promote-prod-v${{ inputs.version }}-$(date +%s)"
+          git checkout -b "$branch"
+          git add gitops/model-api/values.yaml
+          git commit -m "promote model v${{ inputs.version }} to prod"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "Promote model v${{ inputs.version }} to prod" \
+            --body "Promotes loan-default v${{ inputs.version }} to production. Triggered manually via promote-to-prod workflow."
