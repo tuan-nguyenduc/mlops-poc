@@ -1,0 +1,47 @@
+name: train-promote-dev
+
+# Runs on a self-hosted runner (your Mac) because it needs to reach the local
+# MLflow server (http://localhost:5050) that only exists on your kind cluster.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: train-promote-dev
+  cancel-in-progress: false
+
+jobs:
+  train-and-promote:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Train a candidate
+        run: |
+          python3.12 -m venv .venv
+          .venv/bin/pip install -q -r ml/requirements.txt
+          cd ml && ../.venv/bin/python pipeline.py --seed "$(date +%s)"
+
+      - name: Run the promotion gate for dev
+        id: promote
+        run: |
+          cd ml
+          set +e
+          ../.venv/bin/python promote.py --values ../gitops/model-api/overlays/dev/values.yaml
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Commit and push if a new version was promoted
+        if: steps.promote.outputs.exit == '0'
+        run: |
+          git config user.email "ml-pipeline-bot@local"
+          git config user.name "ml-pipeline-bot"
+          git add gitops/model-api/overlays/dev/values.yaml
+          if ! git diff --cached --quiet; then
+            git commit -m "auto: retrain and promote dev model"
+            git push
+          fi
