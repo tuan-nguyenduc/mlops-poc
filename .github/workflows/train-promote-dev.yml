@@ -2,10 +2,17 @@ name: train-promote-dev
 
 # Runs on a self-hosted runner (your Mac) because it needs to reach the local
 # MLflow server (http://localhost:5050) that only exists on your kind cluster.
+#
+# Triggered by changes to the training code/data, like a real retrain-on-change
+# pipeline - not a fixed clock. Pushes only to the dev overlay, which `ml/**`
+# doesn't include, so this can't trigger itself in a loop. Use "Run workflow"
+# in the Actions tab for a deliberate manual retrain.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "*/15 * * * *"
+  push:
+    branches: [main]
+    paths:
+      - "ml/**"
 
 permissions:
   contents: write
