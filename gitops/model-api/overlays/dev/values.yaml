@@ -1,7 +1,7 @@
 # Overrides on top of ../../values.yaml for the dev environment.
 # modelVersion here can move freely; dev has no promotion gate.
 # Must be set explicitly (not inherited) so ml/promote.py --values can target it.
-modelVersion: "1"
+modelVersion: "6"
 replicas: 1
 
 # No stable host port mapped for dev in kind; reach it with:
