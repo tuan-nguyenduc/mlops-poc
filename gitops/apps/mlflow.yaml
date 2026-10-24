@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/YOUR_USER/mlops-poc
+    repoURL: https://github.com/tuan-nguyenduc/mlops-poc.git
     targetRevision: main
     path: gitops/platform/mlflow
   destination:
