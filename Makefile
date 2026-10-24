@@ -10,7 +10,7 @@ export MLFLOW_TRACKING_URI ?= http://localhost:5050
 PLACEHOLDER := https://github.com/YOUR_USER/mlops-poc
 
 .PHONY: help prereqs configure venv up images bootstrap train promote release load load-staging \
-        chaos-on chaos-off sync watch status urls passwords test lint scan down
+        chaos-on chaos-off chaos-bias-on chaos-bias-off sync watch status urls passwords test lint scan down
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n",$$1,$$2}'
@@ -73,6 +73,13 @@ chaos-on: ## Make the next release fail 30% of requests (to demo auto-rollback)
 
 chaos-off: ## Remove the injected failures
 	sed -i '' 's/^  errorRate: .*/  errorRate: "0"/' gitops/model-api/values.yaml
+
+chaos-bias-on: ## Make the next release predict +0.4 higher default probability (to demo the prediction-shift gate)
+	sed -i '' 's/^  predictionBias: .*/  predictionBias: "0.4"/' gitops/model-api/values.yaml
+	@echo "Now: make release MSG='bad release (prediction bias)' and watch the canary abort"
+
+chaos-bias-off: ## Remove the injected prediction bias
+	sed -i '' 's/^  predictionBias: .*/  predictionBias: "0"/' gitops/model-api/values.yaml
 
 sync: ## Ask ArgoCD to pull Git now instead of waiting for its 3-minute poll
 	@for a in root model-api; do kubectl -n argocd annotate application $$a argocd.argoproj.io/refresh=normal --overwrite >/dev/null; done

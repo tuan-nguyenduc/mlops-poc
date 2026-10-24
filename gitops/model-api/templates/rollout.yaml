@@ -38,6 +38,8 @@ spec:
               value: {{ .Values.modelVersion | quote }}
             - name: CHAOS_ERROR_RATE
               value: {{ .Values.chaos.errorRate | quote }}
+            - name: CHAOS_PREDICTION_BIAS
+              value: {{ .Values.chaos.predictionBias | quote }}
             - name: HOME
               value: /tmp
           readinessProbe:

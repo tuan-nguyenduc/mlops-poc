@@ -29,6 +29,7 @@ log = logging.getLogger("model-api")
 MODEL_NAME = os.getenv("MODEL_NAME", "loan-default")
 MODEL_VERSION = os.getenv("MODEL_VERSION", "1")
 CHAOS_ERROR_RATE = float(os.getenv("CHAOS_ERROR_RATE", "0"))
+CHAOS_PREDICTION_BIAS = float(os.getenv("CHAOS_PREDICTION_BIAS", "0"))
 THRESHOLD = float(os.getenv("DECISION_THRESHOLD", "0.5"))
 USE_STUB = os.getenv("MODEL_STUB") == "1"  # tests only
 
@@ -150,7 +151,7 @@ def predict(req: PredictRequest):
         raise HTTPException(status_code=500, detail="chaos: injected failure")
 
     X = pd.DataFrame([a.model_dump() for a in req.applications])[FEATURES]
-    proba = model.predict_proba(X)[:, 1]
+    proba = (model.predict_proba(X)[:, 1] + CHAOS_PREDICTION_BIAS).clip(0, 1)
 
     results = []
     for p in proba:
