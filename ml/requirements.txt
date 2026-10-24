@@ -1,0 +1,9 @@
+# Keep these versions identical to serving/requirements.txt:
+# a model must be loaded with the same scikit-learn version it was trained with.
+mlflow==2.17.2
+scikit-learn==1.5.2
+pandas==2.2.3
+numpy==1.26.4
+requests==2.32.3
+# MLflow 2.17 breaks with SQLAlchemy 2.1+
+sqlalchemy==2.0.36

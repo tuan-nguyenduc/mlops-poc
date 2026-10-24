@@ -1,0 +1,17 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: model-api
+  labels:
+    {{- include "model-api.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "model-api.selector" . | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+  # Copies the pod's rollout hash onto every metric, so canary and stable can be told apart
+  podTargetLabels:
+    - rollouts-pod-template-hash

@@ -1,0 +1,21 @@
+# Optional AI gateway. To enable: cp this file to gitops/apps/ and push.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: litellm
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR_USER/mlops-poc
+    targetRevision: main
+    path: gitops/optional/litellm/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ai-gateway
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

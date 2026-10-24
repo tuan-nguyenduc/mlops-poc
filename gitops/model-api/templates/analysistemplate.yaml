@@ -1,0 +1,30 @@
+# Canary gate: the new version's /predict error rate must stay under the limit.
+# If it fails, Argo Rollouts aborts and sends all traffic back to the stable version.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: model-api-error-rate
+  labels:
+    {{- include "model-api.labels" . | nindent 4 }}
+spec:
+  args:
+    - name: canary-hash
+  metrics:
+    - name: error-rate
+      interval: 15s
+      count: 4
+      failureLimit: 1
+      # Empty result = no traffic yet; treated as a pass
+      successCondition: len(result) == 0 || result[0] <= {{ .Values.canary.maxErrorRate }}
+      provider:
+        prometheus:
+          address: {{ .Values.canary.prometheusAddress }}
+          query: |
+            (
+              sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}", path="/predict", status=~"5..", rollouts_pod_template_hash="{{ "{{" }}args.canary-hash{{ "}}" }}"}[1m]))
+              or vector(0)
+            )
+            /
+            (
+              sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}", path="/predict", rollouts_pod_template_hash="{{ "{{" }}args.canary-hash{{ "}}" }}"}[1m])) > 0
+            )

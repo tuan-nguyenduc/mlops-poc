@@ -1,0 +1,10 @@
+# Same ML versions as ml/requirements.txt (model compatibility).
+mlflow==2.17.2
+scikit-learn==1.5.2
+pandas==2.2.3
+numpy==1.26.4
+fastapi==0.115.5
+uvicorn==0.32.1
+prometheus-client==0.21.0
+# MLflow 2.17 breaks with SQLAlchemy 2.1+
+sqlalchemy==2.0.36

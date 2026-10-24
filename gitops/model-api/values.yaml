@@ -1,0 +1,32 @@
+# Model version to serve. Managed by ml/promote.py; Git is the source of truth.
+modelVersion: "1"
+
+model:
+  name: loan-default
+
+replicas: 4
+
+image:
+  repository: mlops-poc/model-api
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent # image is loaded into kind with `make images`
+
+mlflowTrackingUri: http://mlflow.mlflow.svc.cluster.local:5000
+
+# Fraction of /predict calls that fail on purpose (demo of automatic rollback)
+chaos:
+  errorRate: "0"
+
+canary:
+  maxErrorRate: 0.05
+  prometheusAddress: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
+
+service:
+  nodePort: 30800
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 768Mi

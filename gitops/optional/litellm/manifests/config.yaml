@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+data:
+  config.yaml: |
+    # Models run in Ollama on your Mac (Metal GPU), reached from the cluster
+    # through host.docker.internal. Colima users: use host.lima.internal.
+    model_list:
+      - model_name: llama3.2
+        litellm_params:
+          model: ollama/llama3.2
+          api_base: http://host.docker.internal:11434
+      - model_name: qwen2.5
+        litellm_params:
+          model: ollama/qwen2.5:7b
+          api_base: http://host.docker.internal:11434
+    router_settings:
+      # If one model fails, try the other
+      fallbacks:
+        - llama3.2: ["qwen2.5"]
+    general_settings:
+      master_key: os.environ/LITELLM_MASTER_KEY
+    # Uncomment after setting the LANGFUSE_* env vars in deployment.yaml
+    # litellm_settings:
+    #   success_callback: ["langfuse"]
+    #   failure_callback: ["langfuse"]

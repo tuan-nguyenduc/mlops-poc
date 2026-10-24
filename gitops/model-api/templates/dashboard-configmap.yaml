@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: model-api-dashboard
+  labels:
+    {{- include "model-api.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  model-api.json: |-
+{{ .Files.Get "dashboards/model-api.json" | indent 4 }}
