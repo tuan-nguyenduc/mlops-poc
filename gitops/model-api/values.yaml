@@ -20,6 +20,9 @@ chaos:
 canary:
   maxErrorRate: 0.05
   maxP95LatencySeconds: 0.5
+  # Canary's "default" prediction rate vs stable's: how far apart they're allowed
+  # to be before it's flagged as the new model behaving suspiciously differently.
+  maxPredictionShiftRatio: 2.0
   prometheusAddress: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
 
 service:

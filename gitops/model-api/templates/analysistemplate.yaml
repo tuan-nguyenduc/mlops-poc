@@ -41,3 +41,28 @@ spec:
             histogram_quantile(0.95,
               sum(rate(http_request_duration_seconds_bucket{namespace="{{ .Release.Namespace }}", path="/predict", rollouts_pod_template_hash="{{ "{{" }}args.canary-hash{{ "}}" }}"}[1m])) by (le)
             )
+    # ML health check, not just infra health: is the new model making systematically
+    # different decisions than the old one? A model can be fast and error-free while
+    # quietly approving/rejecting a very different share of applicants.
+    - name: prediction-shift
+      interval: 15s
+      count: 4
+      failureLimit: 1
+      successCondition: >-
+        len(result) == 0 ||
+        (result[0] >= 1/{{ .Values.canary.maxPredictionShiftRatio }} && result[0] <= {{ .Values.canary.maxPredictionShiftRatio }})
+      provider:
+        prometheus:
+          address: {{ .Values.canary.prometheusAddress }}
+          query: |
+            (
+              sum(rate(model_predictions_total{namespace="{{ .Release.Namespace }}", outcome="default", rollouts_pod_template_hash="{{ "{{" }}args.canary-hash{{ "}}" }}"}[2m]))
+              /
+              sum(rate(model_predictions_total{namespace="{{ .Release.Namespace }}", rollouts_pod_template_hash="{{ "{{" }}args.canary-hash{{ "}}" }}"}[2m])) > 0
+            )
+            /
+            (
+              sum(rate(model_predictions_total{namespace="{{ .Release.Namespace }}", outcome="default", rollouts_pod_template_hash!="{{ "{{" }}args.canary-hash{{ "}}" }}"}[2m]))
+              /
+              sum(rate(model_predictions_total{namespace="{{ .Release.Namespace }}", rollouts_pod_template_hash!="{{ "{{" }}args.canary-hash{{ "}}" }}"}[2m])) > 0
+            )
