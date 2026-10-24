@@ -11,7 +11,7 @@ spec:
     targetRevision: main
     path: gitops/optional/litellm/manifests
   destination:
-    server: https://kubernetes.default.svcgit add -A && git commit -m "enable LiteLLM gateway"
+    server: https://kubernetes.default.svc
     namespace: ai-gateway
   syncPolicy:
     automated:
