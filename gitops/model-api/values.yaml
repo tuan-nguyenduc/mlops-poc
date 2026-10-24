@@ -15,7 +15,7 @@ mlflowTrackingUri: http://mlflow.mlflow.svc.cluster.local:5000
 
 # Fraction of /predict calls that fail on purpose (demo of automatic rollback)
 chaos:
-  errorRate: "0.3"
+  errorRate: "0"
 
 canary:
   maxErrorRate: 0.05
