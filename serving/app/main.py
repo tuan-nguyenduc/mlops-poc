@@ -21,6 +21,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from pydantic import BaseModel, Field
 
@@ -99,6 +100,15 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Loan default model API", version="0.1.0", lifespan=lifespan)
+# Local POC only: the frontend calls this API cross-origin from its own
+# container, so CORS has to be open. Scope this to the real frontend origin
+# in production instead of allowing everything.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
 
 class LoanApplication(BaseModel):
@@ -177,6 +187,13 @@ def info():
         "threshold": THRESHOLD,
         "chaos_error_rate": CHAOS_ERROR_RATE,
     }
+
+
+@app.get("/schema")
+def schema():
+    """LoanApplication's JSON schema, so a frontend can build its form from the
+    same definition /predict validates against - one source of truth, not two."""
+    return LoanApplication.model_json_schema()
 
 
 @app.post("/predict")

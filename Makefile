@@ -3,6 +3,7 @@ SHELL       := /bin/bash
 CLUSTER     ?= mlops-poc
 TAG         ?= 0.1.0
 MLFLOW_TAG  := 2.17.2
+FRONTEND_TAG ?= 0.1.0
 PY          ?= python3.12
 VENV        := .venv
 BIN         := $(VENV)/bin
@@ -10,7 +11,7 @@ export MLFLOW_TRACKING_URI ?= http://localhost:5050
 PLACEHOLDER := https://github.com/YOUR_USER/mlops-poc
 
 .PHONY: help prereqs configure venv up images bootstrap train promote release load load-staging \
-        chaos-on chaos-off chaos-bias-on chaos-bias-off sync watch status urls passwords test lint scan down
+        chaos-on chaos-off chaos-bias-on chaos-bias-off ui sync watch status urls passwords test lint scan down
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n",$$1,$$2}'
@@ -41,7 +42,8 @@ up: ## Create kind cluster + ArgoCD + root app with Terraform
 images: ## Build images and load them into kind (no registry needed)
 	docker build -t mlops-poc/model-api:$(TAG) serving
 	docker build -t mlops-poc/mlflow:$(MLFLOW_TAG) platform/mlflow-image
-	kind load docker-image mlops-poc/model-api:$(TAG) mlops-poc/mlflow:$(MLFLOW_TAG) --name $(CLUSTER)
+	docker build -t mlops-poc/frontend:$(FRONTEND_TAG) frontend
+	kind load docker-image mlops-poc/model-api:$(TAG) mlops-poc/mlflow:$(MLFLOW_TAG) mlops-poc/frontend:$(FRONTEND_TAG) --name $(CLUSTER)
 
 bootstrap: up images venv ## Everything in one go: cluster, images, venv
 	@echo "Waiting for MLflow (ArgoCD is syncing the apps; first time takes a few minutes)..."
@@ -81,6 +83,10 @@ chaos-bias-on: ## Make the next release predict +0.4 higher default probability 
 chaos-bias-off: ## Remove the injected prediction bias
 	sed -i '' 's/^  predictionBias: .*/  predictionBias: "0"/' gitops/model-api/values.yaml
 
+ui: ## Port-forward the frontend to http://localhost:8081 (Ctrl+C to stop)
+	@echo "Open http://localhost:8081"
+	kubectl -n frontend port-forward svc/frontend 8081:80
+
 sync: ## Ask ArgoCD to pull Git now instead of waiting for its 3-minute poll
 	@for a in root model-api; do kubectl -n argocd annotate application $$a argocd.argoproj.io/refresh=normal --overwrite >/dev/null; done
 	@echo "ArgoCD refresh requested"
@@ -90,7 +96,7 @@ watch: ## Watch the canary rollout live (needs the kubectl plugin)
 
 status: ## Quick health overview
 	@kubectl get applications -n argocd
-	@kubectl get pods -A | grep -E 'NAMESPACE|model-api|mlflow|argo|monitoring|ai-gateway' || true
+	@kubectl get pods -A | grep -E 'NAMESPACE|model-api|mlflow|argo|monitoring|ai-gateway|frontend' || true
 
 urls: ## Print local URLs
 	@echo "ArgoCD      http://localhost:8080   (admin / make passwords)"
@@ -98,6 +104,7 @@ urls: ## Print local URLs
 	@echo "Model API   http://localhost:8800/docs"
 	@echo "Grafana     http://localhost:3000   (admin / admin)"
 	@echo "Prometheus  http://localhost:9090"
+	@echo "Frontend UI run 'make ui', then http://localhost:8081"
 
 passwords: ## Show the ArgoCD admin password
 	@kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo
