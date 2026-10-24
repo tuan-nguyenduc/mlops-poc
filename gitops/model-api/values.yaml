@@ -19,6 +19,7 @@ chaos:
 
 canary:
   maxErrorRate: 0.05
+  maxP95LatencySeconds: 0.5
   prometheusAddress: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
 
 service:

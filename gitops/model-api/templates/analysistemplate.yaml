@@ -28,3 +28,16 @@ spec:
             (
               sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}", path="/predict", rollouts_pod_template_hash="{{ "{{" }}args.canary-hash{{ "}}" }}"}[1m])) > 0
             )
+    - name: latency-p95
+      interval: 15s
+      count: 4
+      failureLimit: 1
+      # Empty result = no traffic yet; treated as a pass
+      successCondition: len(result) == 0 || result[0] <= {{ .Values.canary.maxP95LatencySeconds }}
+      provider:
+        prometheus:
+          address: {{ .Values.canary.prometheusAddress }}
+          query: |
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket{namespace="{{ .Release.Namespace }}", path="/predict", rollouts_pod_template_hash="{{ "{{" }}args.canary-hash{{ "}}" }}"}[1m])) by (le)
+            )
