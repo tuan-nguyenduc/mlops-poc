@@ -1,5 +1,7 @@
 # Overrides on top of ../../values.yaml for the staging environment.
 # modelVersion should only change via a reviewed PR promoting a dev-validated version.
+# Must be set explicitly (not inherited) so ml/promote.py --values can target it.
+modelVersion: "1"
 replicas: 2
 
 # No stable host port mapped for staging in kind; reach it with:
