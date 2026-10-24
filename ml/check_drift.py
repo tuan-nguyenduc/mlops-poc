@@ -24,7 +24,7 @@ from pathlib import Path
 import mlflow
 from mlflow.tracking import MlflowClient
 
-from data import FEATURES, generate
+from data import NUMERIC_FEATURES, generate
 
 MODEL_NAME = os.getenv("MODEL_NAME", "loan-default")
 ALIASES = {"dev": "dev-champion", "staging": "staging-champion", "prod": "champion"}
@@ -51,10 +51,10 @@ def main() -> None:
         baseline = json.loads(Path(path).read_text())
 
     live = generate(n=args.rows, seed=int(time.time()), shift=args.drift)
-    live_means = live[FEATURES].mean()
+    live_means = live[NUMERIC_FEATURES].mean()
 
     report, drifted = [], False
-    for feat in FEATURES:
+    for feat in NUMERIC_FEATURES:
         base, now = baseline[feat], live_means[feat]
         rel = abs(now - base) / (abs(base) + 1e-9)
         flag = rel > args.threshold

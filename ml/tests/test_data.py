@@ -8,25 +8,32 @@ from data import FEATURES, TARGET, generate, validate  # noqa: E402
 
 
 def test_generate_has_expected_columns():
-    df = generate(n=2_000)
-    assert list(df.columns) == FEATURES + [TARGET]
+    df = generate()
+    assert set(df.columns) == set(FEATURES + [TARGET])
 
 
 def test_validate_passes_on_clean_data():
-    report = validate(generate(n=2_000))
-    assert report["rows"] == 2_000
-    assert 0.02 <= report["default_rate"] <= 0.60
+    report = validate(generate())
+    assert report["rows"] == 1_000
+    assert 0.05 <= report["default_rate"] <= 0.60
 
 
 def test_validate_rejects_out_of_range_values():
-    df = generate(n=2_000)
-    df.loc[0, "credit_score"] = 9_999
-    with pytest.raises(ValueError, match="credit_score"):
+    df = generate()
+    df.loc[0, "age"] = 9_999
+    with pytest.raises(ValueError, match="age"):
+        validate(df)
+
+
+def test_validate_rejects_unknown_category():
+    df = generate()
+    df.loc[0, "housing"] = "mansion"
+    with pytest.raises(ValueError, match="housing"):
         validate(df)
 
 
 def test_validate_rejects_nulls():
-    df = generate(n=2_000)
-    df.loc[0, "income"] = None
+    df = generate()
+    df.loc[0, "credit_amount"] = None
     with pytest.raises(ValueError, match="null"):
         validate(df)

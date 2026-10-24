@@ -7,7 +7,7 @@ Registering does NOT deploy it. Deployment happens through promote.py + Git.
 Examples:
     python pipeline.py                                   # gradient boosting, defaults
     python pipeline.py --algo logreg --C 0.5             # a weaker baseline
-    python pipeline.py --n-estimators 300 --max-depth 4  # try to beat the champion
+    python pipeline.py --n-estimators 300 --max-depth 5  # try to beat the champion
 
 CI note: pushes touching ml/** auto-trigger .github/workflows/train-promote-dev.yml
 """
@@ -20,18 +20,20 @@ import os
 import mlflow
 from mlflow.models import infer_signature
 from mlflow.tracking import MlflowClient
+from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
+from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from data import FEATURES, TARGET, generate, validate
+from data import CATEGORICAL_FEATURES, FEATURES, NUMERIC_FEATURES, TARGET, generate, validate
 
 MODEL_NAME = os.getenv("MODEL_NAME", "loan-default")
 EXPERIMENT = os.getenv("MLFLOW_EXPERIMENT", "loan-default")
-HOLDOUT_SEED = 20_260_000  # fixed: never used for training
-HOLDOUT_ROWS = 10_000
+HOLDOUT_SEED = 20_260_000  # fixed: the same 20% split every run, for a fair comparison
+HOLDOUT_FRACTION = 0.2
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,14 +43,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-depth", type=int, default=3)
     p.add_argument("--learning-rate", type=float, default=0.1)
     p.add_argument("--C", type=float, default=1.0, help="logreg regularisation")
-    p.add_argument("--rows", type=int, default=20_000)
+    p.add_argument("--rows", type=int, default=None, help="subsample the training pool (default: use all)")
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--drift", type=float, default=0.0, help="simulate population drift (see data.generate)")
     p.add_argument("--threshold", type=float, default=0.5, help="decision threshold")
+    p.add_argument("--drift", type=float, default=0.0, help="simulate population drift (see data.generate)")
     return p.parse_args()
 
 
 def build_model(args: argparse.Namespace):
+    preprocess = ColumnTransformer([
+        ("num", StandardScaler(), NUMERIC_FEATURES),
+        ("cat", OneHotEncoder(handle_unknown="ignore"), CATEGORICAL_FEATURES),
+    ])
     if args.algo == "logreg":
         clf = LogisticRegression(C=args.C, max_iter=1_000)
         params = {"C": args.C}
@@ -64,7 +70,7 @@ def build_model(args: argparse.Namespace):
             "max_depth": args.max_depth,
             "learning_rate": args.learning_rate,
         }
-    return Pipeline([("scale", StandardScaler()), ("clf", clf)]), params
+    return Pipeline([("prep", preprocess), ("clf", clf)]), params
 
 
 def main() -> None:
@@ -72,27 +78,32 @@ def main() -> None:
     mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5050"))
     mlflow.set_experiment(EXPERIMENT)
 
-    # 1. Ingest
-    df = generate(n=args.rows, seed=args.seed, shift=args.drift)
+    # 1. Ingest: the full real dataset, optionally drifted (demo only)
+    df = generate(seed=args.seed, shift=args.drift)
     # 2. Validate (raises and stops the pipeline on bad data)
     report = validate(df)
     print(f"[validate] ok: {report}")
 
-    X_train, y_train = df[FEATURES], df[TARGET]
-    # Every run is scored on the SAME fixed holdout set, so metrics are comparable
-    # across runs and the promotion gate is fair.
-    holdout = generate(n=HOLDOUT_ROWS, seed=HOLDOUT_SEED)
+    # Every run is scored on the SAME fixed holdout split, so metrics are
+    # comparable across runs and the promotion gate is fair.
+    train_pool, holdout = train_test_split(
+        df, test_size=HOLDOUT_FRACTION, random_state=HOLDOUT_SEED, stratify=df[TARGET]
+    )
+    if args.rows is not None:
+        train_pool = train_pool.sample(n=args.rows, random_state=args.seed, replace=args.rows > len(train_pool))
+
+    X_train, y_train = train_pool[FEATURES], train_pool[TARGET]
     X_test, y_test = holdout[FEATURES], holdout[TARGET]
     model, params = build_model(args)
 
     with mlflow.start_run() as run:
         mlflow.set_tags({"algo": args.algo, "pipeline": "ml/pipeline.py"})
-        mlflow.log_params({**params, "algo": args.algo, "rows": args.rows,
+        mlflow.log_params({**params, "algo": args.algo, "rows": len(X_train),
                            "seed": args.seed, "threshold": args.threshold, "drift": args.drift,
-                           "holdout_seed": HOLDOUT_SEED, "holdout_rows": HOLDOUT_ROWS})
+                           "holdout_seed": HOLDOUT_SEED, "holdout_rows": len(X_test)})
         mlflow.log_dict(report, "data/validation_report.json")
-        # Training feature means: a simple baseline for drift checks later.
-        mlflow.log_dict(X_train.mean().round(4).to_dict(), "data/feature_baseline.json")
+        # Training feature means (numeric only): a baseline for drift checks later.
+        mlflow.log_dict(X_train[NUMERIC_FEATURES].mean().round(4).to_dict(), "data/feature_baseline.json")
 
         # 3. Train
         model.fit(X_train, y_train)

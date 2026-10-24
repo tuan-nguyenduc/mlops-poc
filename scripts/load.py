@@ -12,15 +12,43 @@ import time
 import requests
 
 
+# Must match ml/data.py's CATEGORY_VALUES/NUMERIC_RANGES (duplicated here since
+# this script runs standalone against the live API, not the training code).
+CATEGORY_VALUES = {
+    "checking_status": ["0<=X<200", "<0", ">=200", "no checking"],
+    "credit_history": [
+        "all paid", "critical/other existing credit", "delayed previously",
+        "existing paid", "no credits/all paid",
+    ],
+    "purpose": [
+        "business", "domestic appliance", "education", "furniture/equipment",
+        "new car", "other", "radio/tv", "repairs", "retraining", "used car",
+    ],
+    "savings_status": ["100<=X<500", "500<=X<1000", "<100", ">=1000", "no known savings"],
+    "employment": ["1<=X<4", "4<=X<7", "<1", ">=7", "unemployed"],
+    "other_parties": ["co applicant", "guarantor", "none"],
+    "property_magnitude": ["car", "life insurance", "no known property", "real estate"],
+    "other_payment_plans": ["bank", "none", "stores"],
+    "housing": ["for free", "own", "rent"],
+    "job": ["high qualif/self emp/mgmt", "skilled", "unemp/unskilled non res", "unskilled resident"],
+    "own_telephone": ["none", "yes"],
+    "foreign_worker": ["no", "yes"],
+}
+
+
 def application() -> dict:
-    return {
-        "income": round(random.lognormvariate(11, 0.5), 2),
-        "loan_amount": round(random.uniform(5_000, 300_000), 2),
-        "credit_score": round(min(850, max(300, random.gauss(680, 60)))),
-        "employment_years": round(min(40, random.expovariate(1 / 6)), 1),
-        "debt_to_income": round(random.betavariate(2, 5), 3),
-        "late_payments": min(10, int(random.expovariate(1.2))),
+    app = {
+        "duration": random.randint(4, 72),
+        "credit_amount": round(random.uniform(250, 18_000), 2),
+        "installment_commitment": random.randint(1, 4),
+        "residence_since": random.randint(1, 4),
+        "age": random.randint(19, 75),
+        "existing_credits": random.randint(1, 4),
+        "num_dependents": random.randint(1, 2),
     }
+    for col, choices in CATEGORY_VALUES.items():
+        app[col] = random.choice(choices)
+    return app
 
 
 def main() -> None:

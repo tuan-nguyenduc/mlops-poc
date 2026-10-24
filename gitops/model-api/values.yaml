@@ -1,5 +1,5 @@
 # Model version to serve. Managed by ml/promote.py; Git is the source of truth.
-modelVersion: "6"
+modelVersion: "11"
 
 model:
   name: loan-default
@@ -8,7 +8,7 @@ replicas: 4
 
 image:
   repository: mlops-poc/model-api
-  tag: "0.1.1"
+  tag: "0.1.2"
   pullPolicy: IfNotPresent # image is loaded into kind with `make images`
 
 mlflowTrackingUri: http://mlflow.mlflow.svc.cluster.local:5000

@@ -16,6 +16,7 @@ import random
 import threading
 import time
 from contextlib import asynccontextmanager
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -33,7 +34,18 @@ CHAOS_PREDICTION_BIAS = float(os.getenv("CHAOS_PREDICTION_BIAS", "0"))
 THRESHOLD = float(os.getenv("DECISION_THRESHOLD", "0.5"))
 USE_STUB = os.getenv("MODEL_STUB") == "1"  # tests only
 
-FEATURES = ["income", "loan_amount", "credit_score", "employment_years", "debt_to_income", "late_payments"]
+# Must match ml/data.py's NUMERIC_FEATURES + CATEGORICAL_FEATURES (duplicated
+# here since the serving image doesn't bundle the training code).
+NUMERIC_FEATURES = [
+    "duration", "credit_amount", "installment_commitment",
+    "residence_since", "age", "existing_credits", "num_dependents",
+]
+CATEGORICAL_FEATURES = [
+    "checking_status", "credit_history", "purpose", "savings_status",
+    "employment", "other_parties", "property_magnitude",
+    "other_payment_plans", "housing", "job", "own_telephone", "foreign_worker",
+]
+FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 
 REQUESTS = Counter("http_requests_total", "HTTP requests", ["path", "method", "status"])
 LATENCY = Histogram(
@@ -55,7 +67,7 @@ class StubModel:
     """Tiny stand-in model so tests run without an MLflow server."""
 
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
-        p = ((850 - X["credit_score"].to_numpy()) / 550).clip(0, 1)
+        p = (X["credit_amount"].to_numpy() / 20_000).clip(0, 1)
         return np.column_stack([1 - p, p])
 
 
@@ -90,12 +102,37 @@ app = FastAPI(title="Loan default model API", version="0.1.0", lifespan=lifespan
 
 
 class LoanApplication(BaseModel):
-    income: float = Field(..., ge=0, le=5_000_000, examples=[65_000])
-    loan_amount: float = Field(..., ge=1_000, le=1_000_000, examples=[120_000])
-    credit_score: float = Field(..., ge=300, le=850, examples=[690])
-    employment_years: float = Field(..., ge=0, le=50, examples=[4])
-    debt_to_income: float = Field(..., ge=0, le=1, examples=[0.3])
-    late_payments: int = Field(..., ge=0, le=50, examples=[1])
+    duration: int = Field(..., ge=1, le=100, examples=[24])
+    credit_amount: float = Field(..., ge=0, le=30_000, examples=[3_000])
+    installment_commitment: int = Field(..., ge=1, le=4, examples=[2])
+    residence_since: int = Field(..., ge=1, le=4, examples=[2])
+    age: int = Field(..., ge=18, le=100, examples=[35])
+    existing_credits: int = Field(..., ge=1, le=4, examples=[1])
+    num_dependents: int = Field(..., ge=1, le=2, examples=[1])
+    checking_status: Literal["0<=X<200", "<0", ">=200", "no checking"] = Field(..., examples=["no checking"])
+    credit_history: Literal[
+        "all paid", "critical/other existing credit", "delayed previously",
+        "existing paid", "no credits/all paid",
+    ] = Field(..., examples=["existing paid"])
+    purpose: Literal[
+        "business", "domestic appliance", "education", "furniture/equipment",
+        "new car", "other", "radio/tv", "repairs", "retraining", "used car",
+    ] = Field(..., examples=["radio/tv"])
+    savings_status: Literal["100<=X<500", "500<=X<1000", "<100", ">=1000", "no known savings"] = Field(
+        ..., examples=["<100"]
+    )
+    employment: Literal["1<=X<4", "4<=X<7", "<1", ">=7", "unemployed"] = Field(..., examples=["1<=X<4"])
+    other_parties: Literal["co applicant", "guarantor", "none"] = Field(..., examples=["none"])
+    property_magnitude: Literal["car", "life insurance", "no known property", "real estate"] = Field(
+        ..., examples=["car"]
+    )
+    other_payment_plans: Literal["bank", "none", "stores"] = Field(..., examples=["none"])
+    housing: Literal["for free", "own", "rent"] = Field(..., examples=["own"])
+    job: Literal[
+        "high qualif/self emp/mgmt", "skilled", "unemp/unskilled non res", "unskilled resident",
+    ] = Field(..., examples=["skilled"])
+    own_telephone: Literal["none", "yes"] = Field(..., examples=["yes"])
+    foreign_worker: Literal["no", "yes"] = Field(..., examples=["no"])
 
 
 class PredictRequest(BaseModel):

@@ -1,67 +1,118 @@
-"""Synthetic loan-default data plus a data-validation step.
+"""Real credit-risk dataset: UCI "German Credit" (OpenML id 31, "credit-g").
 
-The data imitates a digital lending use case: each row is a loan application,
-and the target says whether the borrower defaulted.
+1000 real historical loan applications with a known outcome - genuinely real
+labeled data, not synthetic. Loaded from a committed CSV snapshot
+(ml/data/credit-g.csv) so training never depends on OpenML being reachable;
+refresh it with `python data.py --refresh`.
+
+`personal_status` is dropped on purpose: it encodes sex and marital status
+combined, a protected attribute that shouldn't drive a credit decision.
+
+Being real and small (1000 rows) cuts both ways versus the old synthetic
+generator: metrics are noisier run-to-run, and there's no "just generate
+more rows" knob - `--rows` now subsamples the fixed training pool instead.
 """
 
 from __future__ import annotations
 
-import numpy as np
+import argparse
+from pathlib import Path
+
 import pandas as pd
 
-FEATURES = [
-    "income",
-    "loan_amount",
-    "credit_score",
-    "employment_years",
-    "debt_to_income",
-    "late_payments",
-]
 TARGET = "defaulted"
+CSV_PATH = Path(__file__).resolve().parent / "data" / "credit-g.csv"
 
-# Allowed ranges, checked by validate(). The serving API enforces the same limits.
-RANGES = {
-    "income": (0, 5_000_000),
-    "loan_amount": (1_000, 1_000_000),
-    "credit_score": (300, 850),
-    "employment_years": (0, 50),
-    "debt_to_income": (0, 1),
-    "late_payments": (0, 50),
+NUMERIC_FEATURES = [
+    "duration",
+    "credit_amount",
+    "installment_commitment",
+    "residence_since",
+    "age",
+    "existing_credits",
+    "num_dependents",
+]
+CATEGORICAL_FEATURES = [
+    "checking_status",
+    "credit_history",
+    "purpose",
+    "savings_status",
+    "employment",
+    "other_parties",
+    "property_magnitude",
+    "other_payment_plans",
+    "housing",
+    "job",
+    "own_telephone",
+    "foreign_worker",
+]
+FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
+
+# Allowed values per categorical column - used for validation here, and by the
+# serving API / load generator so synthetic requests stay realistic.
+CATEGORY_VALUES = {
+    "checking_status": ["0<=X<200", "<0", ">=200", "no checking"],
+    "credit_history": [
+        "all paid", "critical/other existing credit", "delayed previously",
+        "existing paid", "no credits/all paid",
+    ],
+    "purpose": [
+        "business", "domestic appliance", "education", "furniture/equipment",
+        "new car", "other", "radio/tv", "repairs", "retraining", "used car",
+    ],
+    "savings_status": ["100<=X<500", "500<=X<1000", "<100", ">=1000", "no known savings"],
+    "employment": ["1<=X<4", "4<=X<7", "<1", ">=7", "unemployed"],
+    "other_parties": ["co applicant", "guarantor", "none"],
+    "property_magnitude": ["car", "life insurance", "no known property", "real estate"],
+    "other_payment_plans": ["bank", "none", "stores"],
+    "housing": ["for free", "own", "rent"],
+    "job": ["high qualif/self emp/mgmt", "skilled", "unemp/unskilled non res", "unskilled resident"],
+    "own_telephone": ["none", "yes"],
+    "foreign_worker": ["no", "yes"],
+}
+NUMERIC_RANGES = {
+    "duration": (1, 100),
+    "credit_amount": (0, 30_000),
+    "installment_commitment": (1, 4),
+    "residence_since": (1, 4),
+    "age": (18, 100),
+    "existing_credits": (1, 4),
+    "num_dependents": (1, 2),
 }
 
 
-def generate(n: int = 20_000, seed: int = 42, shift: float = 0.0) -> pd.DataFrame:
-    """Generate applications. `shift` > 0 makes credit scores worse, to simulate drift."""
-    rng = np.random.default_rng(seed)
-    income = rng.lognormal(mean=11.0, sigma=0.5, size=n)
-    loan_amount = rng.uniform(5_000, 300_000, size=n)
-    credit_score = (rng.normal(680, 60, size=n) - shift * 50).clip(300, 850)
-    employment_years = rng.exponential(6, size=n).clip(0, 40)
-    debt_to_income = rng.beta(2, 5, size=n)
-    late_payments = rng.poisson(0.8, size=n)
+def _fetch_and_cache() -> pd.DataFrame:
+    from sklearn.datasets import fetch_openml
 
-    logit = (
-        -1.6
-        - 0.012 * (credit_score - 680)
-        + 2.5 * (debt_to_income - 0.28)
-        + 0.45 * late_payments
-        + 0.30 * (loan_amount / income - 2.5)
-        - 0.05 * (employment_years - 6)
-    )
-    prob = 1 / (1 + np.exp(-logit))
-    defaulted = (rng.random(n) < prob).astype(int)
+    raw = fetch_openml(name="credit-g", version=1, as_frame=True, parser="auto").frame
+    df = raw.copy()
+    df[TARGET] = (df["class"] == "bad").astype(int)
+    df = df.drop(columns=["class", "personal_status"])
+    CSV_PATH.parent.mkdir(exist_ok=True)
+    df.to_csv(CSV_PATH, index=False)
+    return df
 
-    return pd.DataFrame(
-        {
-            "income": income.round(2),
-            "loan_amount": loan_amount.round(2),
-            "credit_score": credit_score.round(0),
-            "employment_years": employment_years.round(1),
-            "debt_to_income": debt_to_income.round(3),
-            "late_payments": late_payments,
-            TARGET: defaulted,
-        }
-    )
+
+def _load_raw() -> pd.DataFrame:
+    if CSV_PATH.exists():
+        return pd.read_csv(CSV_PATH)
+    return _fetch_and_cache()
+
+
+def generate(n: int | None = None, seed: int = 42, shift: float = 0.0) -> pd.DataFrame:
+    """Return a reproducible sample of the real dataset.
+
+    `shift` > 0 inflates credit_amount, standing in for "live" drift since
+    there's no real production traffic in this POC (see check_drift.py).
+    `n` subsamples (with replacement if n exceeds the dataset size).
+    """
+    df = _load_raw().sample(frac=1, random_state=seed).reset_index(drop=True)
+    if n is not None and n != len(df):
+        df = df.sample(n=n, random_state=seed, replace=n > len(df)).reset_index(drop=True)
+    if shift:
+        df = df.copy()
+        df["credit_amount"] = (df["credit_amount"] * (1 + 0.5 * shift)).round(0)
+    return df
 
 
 def validate(df: pd.DataFrame) -> dict:
@@ -76,22 +127,36 @@ def validate(df: pd.DataFrame) -> dict:
     for col, count in nulls[nulls > 0].items():
         problems.append(f"{col}: {count} null values")
 
-    for col, (low, high) in RANGES.items():
+    for col, (low, high) in NUMERIC_RANGES.items():
         bad = int(((df[col] < low) | (df[col] > high)).sum())
         if bad:
             problems.append(f"{col}: {bad} values outside [{low}, {high}]")
+
+    for col, allowed in CATEGORY_VALUES.items():
+        bad = int((~df[col].isin(allowed)).sum())
+        if bad:
+            problems.append(f"{col}: {bad} values outside {allowed}")
 
     if not set(df[TARGET].unique()) <= {0, 1}:
         problems.append(f"{TARGET} must be 0 or 1")
 
     default_rate = float(df[TARGET].mean())
-    if not 0.02 <= default_rate <= 0.60:
-        problems.append(f"default rate {default_rate:.2%} is outside the expected 2%-60%")
+    if not 0.05 <= default_rate <= 0.60:
+        problems.append(f"default rate {default_rate:.2%} is outside the expected 5%-60%")
 
-    if len(df) < 1_000:
-        problems.append(f"only {len(df)} rows; need at least 1000")
+    if len(df) < 100:
+        problems.append(f"only {len(df)} rows; need at least 100")
 
     if problems:
         raise ValueError("Data validation failed:\n  - " + "\n  - ".join(problems))
 
     return {"rows": len(df), "default_rate": round(default_rate, 4)}
+
+
+if __name__ == "__main__":
+    p = argparse.ArgumentParser(description="Refresh the cached dataset snapshot from OpenML")
+    p.add_argument("--refresh", action="store_true")
+    args = p.parse_args()
+    if args.refresh:
+        df = _fetch_and_cache()
+        print(f"Refreshed {CSV_PATH} ({len(df)} rows)")

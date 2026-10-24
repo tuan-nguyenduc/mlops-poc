@@ -8,8 +8,13 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app.main import app  # noqa: E402
 
 GOOD = {
-    "income": 65000, "loan_amount": 120000, "credit_score": 690,
-    "employment_years": 4, "debt_to_income": 0.3, "late_payments": 1,
+    "duration": 24, "credit_amount": 3_000, "installment_commitment": 2,
+    "residence_since": 2, "age": 35, "existing_credits": 1, "num_dependents": 1,
+    "checking_status": "no checking", "credit_history": "existing paid",
+    "purpose": "radio/tv", "savings_status": "<100", "employment": "1<=X<4",
+    "other_parties": "none", "property_magnitude": "car",
+    "other_payment_plans": "none", "housing": "own", "job": "skilled",
+    "own_telephone": "yes", "foreign_worker": "no",
 }
 
 
@@ -35,7 +40,7 @@ def test_predict_returns_probability():
 def test_invalid_input_is_rejected():
     with TestClient(app) as client:
         wait_ready(client)
-        bad = {**GOOD, "credit_score": 9999}
+        bad = {**GOOD, "housing": "mansion"}
         assert client.post("/predict", json={"applications": [bad]}).status_code == 422
 
 
