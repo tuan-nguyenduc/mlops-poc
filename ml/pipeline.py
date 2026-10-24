@@ -8,6 +8,8 @@ Examples:
     python pipeline.py                                   # gradient boosting, defaults
     python pipeline.py --algo logreg --C 0.5             # a weaker baseline
     python pipeline.py --n-estimators 300 --max-depth 4  # try to beat the champion
+
+CI note: pushes touching ml/** auto-trigger .github/workflows/train-promote-dev.yml
 """
 
 from __future__ import annotations
