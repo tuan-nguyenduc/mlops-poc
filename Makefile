@@ -1,7 +1,7 @@
 # MLOps POC - run `make help`
 SHELL       := /bin/bash
 CLUSTER     ?= mlops-poc
-TAG         ?= 0.2.0
+TAG         ?= 0.2.1
 MLFLOW_TAG  := 2.17.2
 FRONTEND_TAG ?= 0.2.1
 PY          ?= python3.12

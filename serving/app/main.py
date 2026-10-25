@@ -157,6 +157,17 @@ def schema():
     return MealItem.model_json_schema()
 
 
+def unmatched_foods(model, X: pd.DataFrame) -> list[str]:
+    """Foods whose TF-IDF vector has zero matching vocabulary words - the model
+    has no signal for these and would otherwise return an arbitrary nearest
+    match dressed up as a confident number (e.g. "prawn" vs USDA's "shrimp")."""
+    if not hasattr(model, "named_steps"):
+        return []  # StubModel (tests): no vocabulary concept
+    tfidf = model.named_steps["prep"].transform(X)
+    zero_signal = np.asarray(tfidf.sum(axis=1)).ravel() == 0
+    return X.loc[zero_signal, "description"].tolist()
+
+
 @app.post("/predict")
 def predict(req: PredictRequest):
     model = state["model"]
@@ -166,6 +177,10 @@ def predict(req: PredictRequest):
         raise HTTPException(status_code=500, detail="chaos: injected failure")
 
     X = pd.DataFrame({"description": [item.food for item in req.items]})
+    unmatched = unmatched_foods(model, X)
+    if unmatched:
+        raise HTTPException(status_code=422, detail=f"Food(s) not recognized, try different wording: {unmatched}")
+
     per_100g = np.asarray(model.predict(X), dtype=float)
     per_100g[:, 0] = (per_100g[:, 0] + CHAOS_CALORIE_BIAS).clip(min=0)  # calories column
     per_100g = per_100g.clip(min=0)
