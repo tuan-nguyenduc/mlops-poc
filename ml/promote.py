@@ -33,7 +33,7 @@ import mlflow
 from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 
-MODEL_NAME = os.getenv("MODEL_NAME", "loan-default")
+MODEL_NAME = os.getenv("MODEL_NAME", "nutrition-estimator")
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # requires: the environment that must already hold this version before it can
@@ -64,7 +64,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--env", choices=ENVIRONMENTS, default="prod")
     p.add_argument("--version", help="candidate version (default: latest)")
-    p.add_argument("--metric", default="roc_auc")
+    p.add_argument("--metric", default="r2")
     p.add_argument("--min-improvement", type=float, default=0.0)
     p.add_argument("--values", type=Path, help="override the environment's default values file")
     p.add_argument("--min-soak-hours", type=float, help="override the environment's default soak requirement")

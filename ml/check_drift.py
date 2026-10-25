@@ -1,9 +1,10 @@
-"""Compare freshly observed feature means against a champion's logged baseline.
-
-Real teams run this against live production request logs. Here "live" data
-is simulated with the same generator pipeline.py trains on, optionally
-shifted with --drift to demonstrate detection (pipeline.py's --drift flag
-uses the same mechanism to produce a genuinely worse model when needed).
+"""Compare freshly observed nutrition-target means against a champion's logged
+baseline. There's no numeric input feature here (just free text), so this
+checks for *target* drift instead of feature drift - e.g. a USDA data
+revision, or the mix of logged foods shifting toward much richer items. Real
+teams run this against actual logged predictions. Here "live" data is
+simulated with the same generator pipeline.py trains on, optionally shifted
+with --drift to demonstrate detection.
 
 Example:
     python check_drift.py                    # compare prod's live traffic pattern
@@ -24,9 +25,9 @@ from pathlib import Path
 import mlflow
 from mlflow.tracking import MlflowClient
 
-from data import NUMERIC_FEATURES, generate
+from data import TARGETS, generate
 
-MODEL_NAME = os.getenv("MODEL_NAME", "loan-default")
+MODEL_NAME = os.getenv("MODEL_NAME", "nutrition-estimator")
 ALIASES = {"dev": "dev-champion", "staging": "staging-champion", "prod": "champion"}
 DEFAULT_THRESHOLD = 0.10  # 10% relative mean shift on any feature counts as drift
 
@@ -51,10 +52,10 @@ def main() -> None:
         baseline = json.loads(Path(path).read_text())
 
     live = generate(n=args.rows, seed=int(time.time()), shift=args.drift)
-    live_means = live[NUMERIC_FEATURES].mean()
+    live_means = live[TARGETS].mean()
 
     report, drifted = [], False
-    for feat in NUMERIC_FEATURES:
+    for feat in TARGETS:
         base, now = baseline[feat], live_means[feat]
         rel = abs(now - base) / (abs(base) + 1e-9)
         flag = rel > args.threshold

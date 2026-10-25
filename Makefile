@@ -1,9 +1,9 @@
 # MLOps POC - run `make help`
 SHELL       := /bin/bash
 CLUSTER     ?= mlops-poc
-TAG         ?= 0.1.0
+TAG         ?= 0.2.0
 MLFLOW_TAG  := 2.17.2
-FRONTEND_TAG ?= 0.1.0
+FRONTEND_TAG ?= 0.2.0
 PY          ?= python3.12
 VENV        := .venv
 BIN         := $(VENV)/bin
@@ -76,12 +76,12 @@ chaos-on: ## Make the next release fail 30% of requests (to demo auto-rollback)
 chaos-off: ## Remove the injected failures
 	sed -i '' 's/^  errorRate: .*/  errorRate: "0"/' gitops/model-api/values.yaml
 
-chaos-bias-on: ## Make the next release predict +0.4 higher default probability (to demo the prediction-shift gate)
-	sed -i '' 's/^  predictionBias: .*/  predictionBias: "0.4"/' gitops/model-api/values.yaml
-	@echo "Now: make release MSG='bad release (prediction bias)' and watch the canary abort"
+chaos-bias-on: ## Make the next release predict +300 calories per item (to demo the prediction-shift gate)
+	sed -i '' 's/^  calorieBias: .*/  calorieBias: "300"/' gitops/model-api/values.yaml
+	@echo "Now: make release MSG='bad release (calorie bias)' and watch the canary abort"
 
-chaos-bias-off: ## Remove the injected prediction bias
-	sed -i '' 's/^  predictionBias: .*/  predictionBias: "0"/' gitops/model-api/values.yaml
+chaos-bias-off: ## Remove the injected calorie bias
+	sed -i '' 's/^  calorieBias: .*/  calorieBias: "0"/' gitops/model-api/values.yaml
 
 ui: ## Port-forward the frontend to http://localhost:8081 (Ctrl+C to stop)
 	@echo "Open http://localhost:8081"

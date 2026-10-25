@@ -11,44 +11,19 @@ import time
 
 import requests
 
-
-# Must match ml/data.py's CATEGORY_VALUES/NUMERIC_RANGES (duplicated here since
-# this script runs standalone against the live API, not the training code).
-CATEGORY_VALUES = {
-    "checking_status": ["0<=X<200", "<0", ">=200", "no checking"],
-    "credit_history": [
-        "all paid", "critical/other existing credit", "delayed previously",
-        "existing paid", "no credits/all paid",
-    ],
-    "purpose": [
-        "business", "domestic appliance", "education", "furniture/equipment",
-        "new car", "other", "radio/tv", "repairs", "retraining", "used car",
-    ],
-    "savings_status": ["100<=X<500", "500<=X<1000", "<100", ">=1000", "no known savings"],
-    "employment": ["1<=X<4", "4<=X<7", "<1", ">=7", "unemployed"],
-    "other_parties": ["co applicant", "guarantor", "none"],
-    "property_magnitude": ["car", "life insurance", "no known property", "real estate"],
-    "other_payment_plans": ["bank", "none", "stores"],
-    "housing": ["for free", "own", "rent"],
-    "job": ["high qualif/self emp/mgmt", "skilled", "unemp/unskilled non res", "unskilled resident"],
-    "own_telephone": ["none", "yes"],
-    "foreign_worker": ["no", "yes"],
-}
+# A small sample of plausible meal items - doesn't need to match the training
+# vocabulary exactly, just needs to exercise the live API with realistic text.
+FOODS = [
+    "grilled chicken breast", "white rice", "steamed broccoli", "scrambled eggs",
+    "whole wheat toast", "greek yogurt", "banana", "salmon fillet", "sweet potato",
+    "black beans", "avocado", "oatmeal", "almonds", "mixed green salad",
+    "ground beef", "pasta", "cheddar cheese", "orange juice", "peanut butter",
+    "grilled salmon with lemon",
+]
 
 
-def application() -> dict:
-    app = {
-        "duration": random.randint(4, 72),
-        "credit_amount": round(random.uniform(250, 18_000), 2),
-        "installment_commitment": random.randint(1, 4),
-        "residence_since": random.randint(1, 4),
-        "age": random.randint(19, 75),
-        "existing_credits": random.randint(1, 4),
-        "num_dependents": random.randint(1, 2),
-    }
-    for col, choices in CATEGORY_VALUES.items():
-        app[col] = random.choice(choices)
-    return app
+def meal_item() -> dict:
+    return {"food": random.choice(FOODS), "grams": round(random.uniform(50, 400), 1)}
 
 
 def main() -> None:
@@ -63,7 +38,8 @@ def main() -> None:
     print(f"Sending ~{args.rps} req/s to {args.url} (Ctrl+C to stop)")
     while True:
         try:
-            r = requests.post(args.url, json={"applications": [application()]}, timeout=5)
+            items = [meal_item() for _ in range(random.randint(1, 3))]
+            r = requests.post(args.url, json={"items": items}, timeout=5)
             if r.ok:
                 ok += 1
                 v = r.json().get("version", "?")

@@ -41,9 +41,9 @@ spec:
             histogram_quantile(0.95,
               sum(rate(http_request_duration_seconds_bucket{namespace="{{ .Release.Namespace }}", path="/predict", rollouts_pod_template_hash="{{ "{{" }}args.canary-hash{{ "}}" }}"}[1m])) by (le)
             )
-    # ML health check, not just infra health: is the new model making systematically
-    # different decisions than the old one? A model can be fast and error-free while
-    # quietly approving/rejecting a very different share of applicants.
+    # ML health check, not just infra health: is the new model predicting
+    # systematically different calorie values than the old one? A model can be
+    # fast and error-free while quietly estimating meals very differently.
     - name: prediction-shift
       interval: 15s
       count: 4
@@ -56,13 +56,13 @@ spec:
           address: {{ .Values.canary.prometheusAddress }}
           query: |
             (
-              sum(rate(model_predictions_total{namespace="{{ .Release.Namespace }}", outcome="default", rollouts_pod_template_hash="{{ "{{" }}args.canary-hash{{ "}}" }}"}[2m]))
+              sum(rate(model_predicted_calories_sum{namespace="{{ .Release.Namespace }}", rollouts_pod_template_hash="{{ "{{" }}args.canary-hash{{ "}}" }}"}[2m]))
               /
-              sum(rate(model_predictions_total{namespace="{{ .Release.Namespace }}", rollouts_pod_template_hash="{{ "{{" }}args.canary-hash{{ "}}" }}"}[2m])) > 0
+              sum(rate(model_predicted_calories_count{namespace="{{ .Release.Namespace }}", rollouts_pod_template_hash="{{ "{{" }}args.canary-hash{{ "}}" }}"}[2m])) > 0
             )
             /
             (
-              sum(rate(model_predictions_total{namespace="{{ .Release.Namespace }}", outcome="default", rollouts_pod_template_hash!="{{ "{{" }}args.canary-hash{{ "}}" }}"}[2m]))
+              sum(rate(model_predicted_calories_sum{namespace="{{ .Release.Namespace }}", rollouts_pod_template_hash!="{{ "{{" }}args.canary-hash{{ "}}" }}"}[2m]))
               /
-              sum(rate(model_predictions_total{namespace="{{ .Release.Namespace }}", rollouts_pod_template_hash!="{{ "{{" }}args.canary-hash{{ "}}" }}"}[2m])) > 0
+              sum(rate(model_predicted_calories_count{namespace="{{ .Release.Namespace }}", rollouts_pod_template_hash!="{{ "{{" }}args.canary-hash{{ "}}" }}"}[2m])) > 0
             )

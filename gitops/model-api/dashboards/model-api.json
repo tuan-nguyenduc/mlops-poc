@@ -288,7 +288,7 @@
     {
       "id": 8,
       "type": "timeseries",
-      "title": "Decisions (default vs repay)",
+      "title": "Predictions per second",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -312,15 +312,15 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (outcome) (rate(model_predictions_total{namespace=\"model-api\"}[5m]))",
-          "legendFormat": "{{outcome}}"
+          "expr": "sum(rate(model_predicted_calories_count{namespace=\"model-api\"}[5m]))",
+          "legendFormat": "items predicted/sec"
         }
       ]
     },
     {
       "id": 9,
       "type": "timeseries",
-      "title": "Average predicted default probability (drift signal)",
+      "title": "Average predicted calories per item (drift signal)",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -333,7 +333,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -344,8 +344,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(model_prediction_score_sum{namespace=\"model-api\"}[5m])) / sum(rate(model_prediction_score_count{namespace=\"model-api\"}[5m]))",
-          "legendFormat": "mean score"
+          "expr": "sum(rate(model_predicted_calories_sum{namespace=\"model-api\"}[5m])) / sum(rate(model_predicted_calories_count{namespace=\"model-api\"}[5m]))",
+          "legendFormat": "mean predicted calories"
         }
       ]
     }

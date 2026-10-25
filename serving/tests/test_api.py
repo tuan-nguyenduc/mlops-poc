@@ -7,16 +7,6 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app.main import app  # noqa: E402
 
-GOOD = {
-    "duration": 24, "credit_amount": 3_000, "installment_commitment": 2,
-    "residence_since": 2, "age": 35, "existing_credits": 1, "num_dependents": 1,
-    "checking_status": "no checking", "credit_history": "existing paid",
-    "purpose": "radio/tv", "savings_status": "<100", "employment": "1<=X<4",
-    "other_parties": "none", "property_magnitude": "car",
-    "other_payment_plans": "none", "housing": "own", "job": "skilled",
-    "own_telephone": "yes", "foreign_worker": "no",
-}
-
 
 def wait_ready(client: TestClient) -> None:
     for _ in range(50):
@@ -26,28 +16,31 @@ def wait_ready(client: TestClient) -> None:
     raise AssertionError("model never became ready")
 
 
-def test_predict_returns_probability():
+def test_predict_returns_totals():
     with TestClient(app) as client:
         wait_ready(client)
-        r = client.post("/predict", json={"applications": [GOOD, GOOD]})
+        r = client.post(
+            "/predict",
+            json={"items": [{"food": "grilled chicken breast", "grams": 150}, {"food": "white rice", "grams": 200}]},
+        )
         assert r.status_code == 200
-        preds = r.json()["predictions"]
-        assert len(preds) == 2
-        assert 0 <= preds[0]["default_probability"] <= 1
-        assert preds[0]["decision"] in {"default", "repay"}
+        body = r.json()
+        assert len(body["items"]) == 2
+        assert body["total"]["calories"] > 0
+        assert body["items"][0]["food"] == "grilled chicken breast"
 
 
 def test_invalid_input_is_rejected():
     with TestClient(app) as client:
         wait_ready(client)
-        bad = {**GOOD, "housing": "mansion"}
-        assert client.post("/predict", json={"applications": [bad]}).status_code == 422
+        bad = {"items": [{"food": "", "grams": 150}]}
+        assert client.post("/predict", json=bad).status_code == 422
 
 
 def test_metrics_are_exposed():
     with TestClient(app) as client:
         wait_ready(client)
-        client.post("/predict", json={"applications": [GOOD]})
+        client.post("/predict", json={"items": [{"food": "apple", "grams": 100}]})
         body = client.get("/metrics").text
-        assert "model_predictions_total" in body
+        assert "model_predicted_calories" in body
         assert 'http_requests_total{method="POST",path="/predict",status="200"}' in body

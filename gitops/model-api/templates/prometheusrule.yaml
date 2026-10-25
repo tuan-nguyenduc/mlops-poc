@@ -25,12 +25,13 @@ spec:
           annotations:
             summary: A model-api pod has not loaded its model for 10 minutes
         - alert: ModelApiPredictionShift
-          # Share of "default" decisions moved a lot: possible data or concept drift
+          # Average predicted calories moved far from the training mean (~220/100g):
+          # possible data or concept drift, or a chaos knob left on in prod.
           expr: |
-            sum(rate(model_predictions_total{namespace="{{ .Release.Namespace }}", outcome="default"}[30m]))
-            / sum(rate(model_predictions_total{namespace="{{ .Release.Namespace }}"}[30m])) > 0.5
+            sum(rate(model_predicted_calories_sum{namespace="{{ .Release.Namespace }}"}[30m]))
+            / sum(rate(model_predicted_calories_count{namespace="{{ .Release.Namespace }}"}[30m])) > 500
           for: 15m
           labels:
             severity: warning
           annotations:
-            summary: Over 50% of applications predicted to default - check for drift
+            summary: Average predicted calories far above the training baseline - check for drift

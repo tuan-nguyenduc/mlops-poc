@@ -1,13 +1,14 @@
 """Training pipeline: ingest -> validate -> train -> evaluate -> register.
 
-Every run is tracked in MLflow (params, metrics, data report, model artifact)
-and the model is registered as a new version of `loan-default`.
+Predicts calories/protein/carbs/fat per 100g from a free-text food
+description (TF-IDF features -> multi-output regression). Every run is
+tracked in MLflow and registered as a new version of `nutrition-estimator`.
 Registering does NOT deploy it. Deployment happens through promote.py + Git.
 
 Examples:
-    python pipeline.py                                   # gradient boosting, defaults
-    python pipeline.py --algo logreg --C 0.5             # a weaker baseline
-    python pipeline.py --n-estimators 300 --max-depth 5  # try to beat the champion
+    python pipeline.py                              # random forest, defaults
+    python pipeline.py --algo ridge                 # a simpler linear baseline
+    python pipeline.py --n-estimators 300 --max-depth 12  # try to beat the champion
 
 CI note: pushes touching ml/** auto-trigger .github/workflows/train-promote-dev.yml
 """
@@ -18,59 +19,52 @@ import argparse
 import os
 
 import mlflow
+import numpy as np
 from mlflow.models import infer_signature
 from mlflow.tracking import MlflowClient
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import Ridge
+from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split
+from sklearn.multioutput import MultiOutputRegressor
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from data import CATEGORICAL_FEATURES, FEATURES, NUMERIC_FEATURES, TARGET, generate, validate
+from data import TARGETS, TEXT_FEATURE, generate, validate
 
-MODEL_NAME = os.getenv("MODEL_NAME", "loan-default")
-EXPERIMENT = os.getenv("MLFLOW_EXPERIMENT", "loan-default")
+MODEL_NAME = os.getenv("MODEL_NAME", "nutrition-estimator")
+EXPERIMENT = os.getenv("MLFLOW_EXPERIMENT", "nutrition-estimator")
 HOLDOUT_SEED = 20_260_000  # fixed: the same 20% split every run, for a fair comparison
 HOLDOUT_FRACTION = 0.2
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--algo", choices=["gbm", "logreg"], default="gbm")
-    p.add_argument("--n-estimators", type=int, default=150)
-    p.add_argument("--max-depth", type=int, default=3)
-    p.add_argument("--learning-rate", type=float, default=0.1)
-    p.add_argument("--C", type=float, default=1.0, help="logreg regularisation")
+    p.add_argument("--algo", choices=["rf", "ridge"], default="rf")
+    p.add_argument("--n-estimators", type=int, default=200)
+    p.add_argument("--max-depth", type=int, default=12)
+    p.add_argument("--alpha", type=float, default=1.0, help="ridge regularisation")
+    p.add_argument("--max-features", type=int, default=800, help="TF-IDF vocabulary size")
     p.add_argument("--rows", type=int, default=None, help="subsample the training pool (default: use all)")
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--threshold", type=float, default=0.5, help="decision threshold")
     p.add_argument("--drift", type=float, default=0.0, help="simulate population drift (see data.generate)")
     return p.parse_args()
 
 
 def build_model(args: argparse.Namespace):
     preprocess = ColumnTransformer([
-        ("num", StandardScaler(), NUMERIC_FEATURES),
-        ("cat", OneHotEncoder(handle_unknown="ignore"), CATEGORICAL_FEATURES),
+        ("tfidf", TfidfVectorizer(max_features=args.max_features, stop_words="english"), TEXT_FEATURE),
     ])
-    if args.algo == "logreg":
-        clf = LogisticRegression(C=args.C, max_iter=1_000)
-        params = {"C": args.C}
+    if args.algo == "ridge":
+        reg = Ridge(alpha=args.alpha)
+        params = {"alpha": args.alpha}
     else:
-        clf = GradientBoostingClassifier(
-            n_estimators=args.n_estimators,
-            max_depth=args.max_depth,
-            learning_rate=args.learning_rate,
-            random_state=args.seed,
+        reg = MultiOutputRegressor(
+            RandomForestRegressor(n_estimators=args.n_estimators, max_depth=args.max_depth, random_state=args.seed)
         )
-        params = {
-            "n_estimators": args.n_estimators,
-            "max_depth": args.max_depth,
-            "learning_rate": args.learning_rate,
-        }
-    return Pipeline([("prep", preprocess), ("clf", clf)]), params
+        params = {"n_estimators": args.n_estimators, "max_depth": args.max_depth}
+    return Pipeline([("prep", preprocess), ("reg", reg)]), params
 
 
 def main() -> None:
@@ -86,39 +80,35 @@ def main() -> None:
 
     # Every run is scored on the SAME fixed holdout split, so metrics are
     # comparable across runs and the promotion gate is fair.
-    train_pool, holdout = train_test_split(
-        df, test_size=HOLDOUT_FRACTION, random_state=HOLDOUT_SEED, stratify=df[TARGET]
-    )
+    train_pool, holdout = train_test_split(df, test_size=HOLDOUT_FRACTION, random_state=HOLDOUT_SEED)
     if args.rows is not None:
         train_pool = train_pool.sample(n=args.rows, random_state=args.seed, replace=args.rows > len(train_pool))
 
-    X_train, y_train = train_pool[FEATURES], train_pool[TARGET]
-    X_test, y_test = holdout[FEATURES], holdout[TARGET]
+    X_train, y_train = train_pool[[TEXT_FEATURE]], train_pool[TARGETS]
+    X_test, y_test = holdout[[TEXT_FEATURE]], holdout[TARGETS]
     model, params = build_model(args)
 
     with mlflow.start_run() as run:
         mlflow.set_tags({"algo": args.algo, "pipeline": "ml/pipeline.py"})
-        mlflow.log_params({**params, "algo": args.algo, "rows": len(X_train),
-                           "seed": args.seed, "threshold": args.threshold, "drift": args.drift,
+        mlflow.log_params({**params, "algo": args.algo, "rows": len(X_train), "seed": args.seed,
+                           "drift": args.drift, "max_features": args.max_features,
                            "holdout_seed": HOLDOUT_SEED, "holdout_rows": len(X_test)})
         mlflow.log_dict(report, "data/validation_report.json")
-        # Training feature means (numeric only): a baseline for drift checks later.
-        mlflow.log_dict(X_train[NUMERIC_FEATURES].mean().round(4).to_dict(), "data/feature_baseline.json")
+        # Training target means: a baseline for drift checks later.
+        mlflow.log_dict(y_train.mean().round(3).to_dict(), "data/feature_baseline.json")
 
         # 3. Train
         model.fit(X_train, y_train)
 
-        # 4. Evaluate
-        proba = model.predict_proba(X_test)[:, 1]
-        pred = (proba >= args.threshold).astype(int)
-        metrics = {
-            "roc_auc": roc_auc_score(y_test, proba),
-            "f1": f1_score(y_test, pred),
-            "precision": precision_score(y_test, pred, zero_division=0),
-            "recall": recall_score(y_test, pred),
-        }
+        # 4. Evaluate: per-target R^2/MAE, plus an aggregate r2 for the promotion gate
+        pred = np.asarray(model.predict(X_test))
+        r2_per_target = {t: r2_score(y_test[t], pred[:, i]) for i, t in enumerate(TARGETS)}
+        mae_per_target = {t: mean_absolute_error(y_test[t], pred[:, i]) for i, t in enumerate(TARGETS)}
+        metrics = {"r2": float(np.mean(list(r2_per_target.values())))}
+        metrics.update({f"r2_{t}": v for t, v in r2_per_target.items()})
+        metrics.update({f"mae_{t}": v for t, v in mae_per_target.items()})
         mlflow.log_metrics(metrics)
-        print("[evaluate] " + ", ".join(f"{k}={v:.4f}" for k, v in metrics.items()))
+        print(f"[evaluate] r2={metrics['r2']:.4f} | " + ", ".join(f"mae_{t}={mae_per_target[t]:.2f}" for t in TARGETS))
 
         # 5. Register
         signature = infer_signature(X_test, model.predict(X_test))

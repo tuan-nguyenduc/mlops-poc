@@ -1,6 +1,6 @@
 apiVersion: v2
 name: model-api
-description: Loan-default model API with canary releases (Argo Rollouts)
+description: Nutrition estimator model API with canary releases (Argo Rollouts)
 type: application
 version: 0.1.0
 appVersion: "0.1.0"

@@ -1,9 +1,12 @@
-"""Model serving API for the loan-default model.
+"""Model serving API for the nutrition-estimator model.
 
 - Loads an exact model version from the MLflow registry (MODEL_VERSION comes
   from Git through the Helm values, so Git decides what runs).
 - Loads in a background thread: the pod stays alive but reports NOT ready until
   the model is loaded, so Kubernetes never sends traffic to a pod without a model.
+- Predicts calories/protein/carbs/fat per 100g from a free-text food
+  description, then scales by the grams the user entered and sums across
+  items in the meal.
 - Exposes Prometheus metrics used by Grafana and by the Argo Rollouts canary analysis.
 - CHAOS_ERROR_RATE injects 5xx errors, to demo an automatic canary rollback.
 """
@@ -16,7 +19,6 @@ import random
 import threading
 import time
 from contextlib import asynccontextmanager
-from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -28,35 +30,22 @@ from pydantic import BaseModel, Field
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("model-api")
 
-MODEL_NAME = os.getenv("MODEL_NAME", "loan-default")
+MODEL_NAME = os.getenv("MODEL_NAME", "nutrition-estimator")
 MODEL_VERSION = os.getenv("MODEL_VERSION", "1")
 CHAOS_ERROR_RATE = float(os.getenv("CHAOS_ERROR_RATE", "0"))
-CHAOS_PREDICTION_BIAS = float(os.getenv("CHAOS_PREDICTION_BIAS", "0"))
-THRESHOLD = float(os.getenv("DECISION_THRESHOLD", "0.5"))
+CHAOS_CALORIE_BIAS = float(os.getenv("CHAOS_CALORIE_BIAS", "0"))
 USE_STUB = os.getenv("MODEL_STUB") == "1"  # tests only
 
-# Must match ml/data.py's NUMERIC_FEATURES + CATEGORICAL_FEATURES (duplicated
-# here since the serving image doesn't bundle the training code).
-NUMERIC_FEATURES = [
-    "duration", "credit_amount", "installment_commitment",
-    "residence_since", "age", "existing_credits", "num_dependents",
-]
-CATEGORICAL_FEATURES = [
-    "checking_status", "credit_history", "purpose", "savings_status",
-    "employment", "other_parties", "property_magnitude",
-    "other_payment_plans", "housing", "job", "own_telephone", "foreign_worker",
-]
-FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
+TARGETS = ["calories", "protein_g", "carbs_g", "fat_g"]
 
 REQUESTS = Counter("http_requests_total", "HTTP requests", ["path", "method", "status"])
 LATENCY = Histogram(
     "http_request_duration_seconds", "Request latency", ["path"],
     buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5),
 )
-PREDICTIONS = Counter("model_predictions_total", "Predictions by outcome", ["outcome"])
-SCORES = Histogram(
-    "model_prediction_score", "Predicted default probability",
-    buckets=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9),
+PREDICTED_CALORIES = Histogram(
+    "model_predicted_calories", "Predicted calories per meal item (per 100g, pre-scaling)",
+    buckets=(50, 100, 150, 200, 300, 400, 500, 700, 900),
 )
 MODEL_INFO = Gauge("model_info", "Model currently loaded", ["name", "version"])
 MODEL_LOADED = Gauge("model_loaded", "1 when the model is loaded and serving")
@@ -67,9 +56,11 @@ state: dict = {"model": None}
 class StubModel:
     """Tiny stand-in model so tests run without an MLflow server."""
 
-    def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
-        p = (X["credit_amount"].to_numpy() / 20_000).clip(0, 1)
-        return np.column_stack([1 - p, p])
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        n = len(X)
+        lengths = X["description"].str.len().to_numpy()
+        calories = 150 + (lengths % 50) * 5
+        return np.column_stack([calories, np.full(n, 10.0), np.full(n, 20.0), np.full(n, 8.0)])
 
 
 def load_model_forever() -> None:
@@ -99,7 +90,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Loan default model API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Nutrition estimator API", version="0.1.0", lifespan=lifespan)
 # Local POC only: the frontend calls this API cross-origin from its own
 # container, so CORS has to be open. Scope this to the real frontend origin
 # in production instead of allowing everything.
@@ -111,42 +102,13 @@ app.add_middleware(
 )
 
 
-class LoanApplication(BaseModel):
-    duration: int = Field(..., ge=1, le=100, examples=[24])
-    credit_amount: float = Field(..., ge=0, le=30_000, examples=[3_000])
-    installment_commitment: int = Field(..., ge=1, le=4, examples=[2])
-    residence_since: int = Field(..., ge=1, le=4, examples=[2])
-    age: int = Field(..., ge=18, le=100, examples=[35])
-    existing_credits: int = Field(..., ge=1, le=4, examples=[1])
-    num_dependents: int = Field(..., ge=1, le=2, examples=[1])
-    checking_status: Literal["0<=X<200", "<0", ">=200", "no checking"] = Field(..., examples=["no checking"])
-    credit_history: Literal[
-        "all paid", "critical/other existing credit", "delayed previously",
-        "existing paid", "no credits/all paid",
-    ] = Field(..., examples=["existing paid"])
-    purpose: Literal[
-        "business", "domestic appliance", "education", "furniture/equipment",
-        "new car", "other", "radio/tv", "repairs", "retraining", "used car",
-    ] = Field(..., examples=["radio/tv"])
-    savings_status: Literal["100<=X<500", "500<=X<1000", "<100", ">=1000", "no known savings"] = Field(
-        ..., examples=["<100"]
-    )
-    employment: Literal["1<=X<4", "4<=X<7", "<1", ">=7", "unemployed"] = Field(..., examples=["1<=X<4"])
-    other_parties: Literal["co applicant", "guarantor", "none"] = Field(..., examples=["none"])
-    property_magnitude: Literal["car", "life insurance", "no known property", "real estate"] = Field(
-        ..., examples=["car"]
-    )
-    other_payment_plans: Literal["bank", "none", "stores"] = Field(..., examples=["none"])
-    housing: Literal["for free", "own", "rent"] = Field(..., examples=["own"])
-    job: Literal[
-        "high qualif/self emp/mgmt", "skilled", "unemp/unskilled non res", "unskilled resident",
-    ] = Field(..., examples=["skilled"])
-    own_telephone: Literal["none", "yes"] = Field(..., examples=["yes"])
-    foreign_worker: Literal["no", "yes"] = Field(..., examples=["no"])
+class MealItem(BaseModel):
+    food: str = Field(..., min_length=1, max_length=200, examples=["grilled chicken breast"])
+    grams: float = Field(..., gt=0, le=5_000, examples=[150])
 
 
 class PredictRequest(BaseModel):
-    applications: list[LoanApplication] = Field(..., min_length=1, max_length=1_000)
+    items: list[MealItem] = Field(..., min_length=1, max_length=50)
 
 
 @app.middleware("http")
@@ -184,16 +146,15 @@ def info():
         "model": MODEL_NAME,
         "version": MODEL_VERSION,
         "loaded": state["model"] is not None,
-        "threshold": THRESHOLD,
         "chaos_error_rate": CHAOS_ERROR_RATE,
     }
 
 
 @app.get("/schema")
 def schema():
-    """LoanApplication's JSON schema, so a frontend can build its form from the
-    same definition /predict validates against - one source of truth, not two."""
-    return LoanApplication.model_json_schema()
+    """MealItem's JSON schema, so a frontend can build its per-food-row form from
+    the same definition /predict validates against - one source of truth, not two."""
+    return MealItem.model_json_schema()
 
 
 @app.post("/predict")
@@ -204,16 +165,26 @@ def predict(req: PredictRequest):
     if CHAOS_ERROR_RATE and random.random() < CHAOS_ERROR_RATE:
         raise HTTPException(status_code=500, detail="chaos: injected failure")
 
-    X = pd.DataFrame([a.model_dump() for a in req.applications])[FEATURES]
-    proba = (model.predict_proba(X)[:, 1] + CHAOS_PREDICTION_BIAS).clip(0, 1)
+    X = pd.DataFrame({"description": [item.food for item in req.items]})
+    per_100g = np.asarray(model.predict(X), dtype=float)
+    per_100g[:, 0] = (per_100g[:, 0] + CHAOS_CALORIE_BIAS).clip(min=0)  # calories column
+    per_100g = per_100g.clip(min=0)
 
-    results = []
-    for p in proba:
-        outcome = "default" if p >= THRESHOLD else "repay"
-        PREDICTIONS.labels(outcome).inc()
-        SCORES.observe(float(p))
-        results.append({"default_probability": round(float(p), 4), "decision": outcome})
-    return {"model": MODEL_NAME, "version": MODEL_VERSION, "predictions": results}
+    items_out, totals = [], {t: 0.0 for t in TARGETS}
+    for item, row in zip(req.items, per_100g, strict=True):
+        scale = item.grams / 100
+        values = {t: round(float(v) * scale, 2) for t, v in zip(TARGETS, row, strict=True)}
+        PREDICTED_CALORIES.observe(float(row[0]))
+        for t in TARGETS:
+            totals[t] += values[t]
+        items_out.append({"food": item.food, "grams": item.grams, **values})
+
+    return {
+        "model": MODEL_NAME,
+        "version": MODEL_VERSION,
+        "items": items_out,
+        "total": {t: round(v, 2) for t, v in totals.items()},
+    }
 
 
 @app.get("/metrics")
