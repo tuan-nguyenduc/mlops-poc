@@ -20,7 +20,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: frontend
-          image: mlops-poc/frontend:0.2.0 # built locally: make images
+          image: mlops-poc/frontend:0.2.1 # built locally: make images
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
