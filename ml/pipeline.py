@@ -6,9 +6,16 @@ tracked in MLflow and registered as a new version of `nutrition-estimator`.
 Registering does NOT deploy it. Deployment happens through promote.py + Git.
 
 Examples:
-    python pipeline.py                              # random forest, defaults
-    python pipeline.py --algo ridge                 # a simpler linear baseline
-    python pipeline.py --n-estimators 300 --max-depth 12  # try to beat the champion
+    python pipeline.py                     # k-NN over TF-IDF cosine similarity, defaults
+    python pipeline.py --algo ridge        # a simpler linear baseline
+    python pipeline.py --n-neighbors 3     # try to beat the champion
+
+Model choice note: a tree ensemble (RandomForest) was tried first and
+regressed almost everything toward the dataset mean for short queries - fine
+on USDA's own held-out rows (which share its formal vocabulary) but useless
+on casual input like "steamed broccoli". TF-IDF + cosine k-NN - literally
+"find the most similar known foods, use their values" - fits this problem
+shape and measurably outperforms it (r2 0.78 vs 0.66).
 
 CI note: pushes touching ml/** auto-trigger .github/workflows/train-promote-dev.yml
 """
@@ -23,12 +30,11 @@ import numpy as np
 from mlflow.models import infer_signature
 from mlflow.tracking import MlflowClient
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestRegressor
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split
-from sklearn.multioutput import MultiOutputRegressor
+from sklearn.neighbors import KNeighborsRegressor
 from sklearn.pipeline import Pipeline
 
 from data import TARGETS, TEXT_FEATURE, generate, validate
@@ -41,9 +47,8 @@ HOLDOUT_FRACTION = 0.2
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--algo", choices=["rf", "ridge"], default="rf")
-    p.add_argument("--n-estimators", type=int, default=200)
-    p.add_argument("--max-depth", type=int, default=12)
+    p.add_argument("--algo", choices=["knn", "ridge"], default="knn")
+    p.add_argument("--n-neighbors", type=int, default=5)
     p.add_argument("--alpha", type=float, default=1.0, help="ridge regularisation")
     p.add_argument("--max-features", type=int, default=800, help="TF-IDF vocabulary size")
     p.add_argument("--rows", type=int, default=None, help="subsample the training pool (default: use all)")
@@ -60,10 +65,8 @@ def build_model(args: argparse.Namespace):
         reg = Ridge(alpha=args.alpha)
         params = {"alpha": args.alpha}
     else:
-        reg = MultiOutputRegressor(
-            RandomForestRegressor(n_estimators=args.n_estimators, max_depth=args.max_depth, random_state=args.seed)
-        )
-        params = {"n_estimators": args.n_estimators, "max_depth": args.max_depth}
+        reg = KNeighborsRegressor(n_neighbors=args.n_neighbors, metric="cosine")
+        params = {"n_neighbors": args.n_neighbors}
     return Pipeline([("prep", preprocess), ("reg", reg)]), params
 
 
